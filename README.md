@@ -70,6 +70,85 @@ Apply the tokenizer to the datasets:
 tokenized_train = train_dataset.map(tokenize_function, batched=True)
 tokenized_test = test_dataset.map(tokenize_function, batched=True)
 ```
+
+**To Use GPU:**
+```python
+import torch
+
+# Set the device to GPU if available
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+from torch.utils.data import DataLoader
+
+def collate_fn(batch):
+    # Stack the inputs and move them to GPU
+    input_ids = torch.stack([item['input_ids'] for item in batch]).to(device)
+    attention_mask = torch.stack([item['attention_mask'] for item in batch]).to(device)
+    labels = torch.tensor([item['label'] for item in batch]).to(device)
+    return {'input_ids': input_ids, 'attention_mask': attention_mask, 'labels': labels}
+```
+```python
+from torch.utils.data import DataLoader
+
+# For the training dataset
+train_loader = DataLoader(
+    tokenized_train, 
+    batch_size=16, 
+    shuffle=True, 
+    collate_fn=collate_fn
+)
+
+# For the test dataset
+test_loader = DataLoader(
+    tokenized_test, 
+    batch_size=16, 
+    shuffle=False, 
+    collate_fn=collate_fn
+)
+```
+
+```python
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    predictions = np.argmax(logits, axis=-1)
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        labels, predictions, average='binary'
+    )
+    acc = accuracy_score(labels, predictions)
+    return {'accuracy': acc, 'f1': f1, 'precision': precision, 'recall': recall}
+```
+```python
+model = BertForSequenceClassification.from_pretrained('bert-base-uncased').to(device)
+
+# Define training arguments
+from transformers import TrainingArguments
+
+training_args = TrainingArguments(
+    output_dir='./results',
+    num_train_epochs=1,  # Adjust as needed
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=16,
+    logging_steps=500,
+    evaluation_strategy="epoch",
+    save_strategy="epoch",
+    load_best_model_at_end=True,
+)
+
+# Initialize the Trainer
+from transformers import Trainer
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_train,
+    eval_dataset=tokenized_test,
+    compute_metrics=compute_metrics,
+)
+
+# Start training
+trainer.train()
+```
+
 Set the format for PyTorch:
 
 ```python
